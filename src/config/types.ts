@@ -1,6 +1,8 @@
 export interface Config {
-  suiNetwork: "devnet" | "testnet" | "mainnet";
+  suiNetwork: "testnet";
   backendConfirmationUrl: string;
   suiPrivateKey: string;
   javaStatusEndpoint: string;
+  monitoredWalletAddress: string;
+  shinamiNodeAccessKey: string;
 }

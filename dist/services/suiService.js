@@ -3,9 +3,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.suiService = void 0;
+exports.SuiService = void 0;
 const ed25519_1 = require("@mysten/sui/keypairs/ed25519");
-const sui_1 = require("@shinami/clients/sui");
+const client_1 = require("@mysten/sui/client");
 const faucet_1 = require("@mysten/sui/faucet");
 const buffer_1 = require("buffer");
 const config_1 = __importDefault(require("../config"));
@@ -22,15 +22,21 @@ class SuiService {
     client;
     primaryKeypair;
     unsubscribeMonitoringFunctions = [];
-    constructor() {
-        const shinamiNodeAccessKey = process.env.SHINAMI_NODE_ACCESS_KEY; // Assuming you load this from .env in config or directly
-        if (!shinamiNodeAccessKey) {
-            throw new Error("SHINAMI_NODE_ACCESS_KEY is not set. Please provide your Shinami API key.");
-        }
-        this.client = (0, sui_1.createSuiClient)(shinamiNodeAccessKey);
-        logger_1.logger.info(`SuiClient initialized with Shinami Node Service for network: ${config_1.default.suiNetwork}`);
+    backendConfirmationUrl;
+    constructor(shinamiNodeAccessKey, suiNetwork) {
+        // We assume the shinamiNodeAccessKey is already validated by the caller (e.g., in index.ts)
+        // and passed in correctly.
+        // this.client = createSuiClient(shinamiNodeAccessKey);
+        this.client = new client_1.SuiClient({ url: (0, client_1.getFullnodeUrl)(suiNetwork) }); // Use the public endpoint for the specified network
+        logger_1.logger.info(`SuiClient initialized with Public Node Service for network: ${suiNetwork}`);
+        this.backendConfirmationUrl = config_1.default.backendConfirmationUrl;
+        logger_1.logger.info(`SuiClient initialized with Shinami Node Service for network: ${suiNetwork}`);
+        // loadKeypairFromConfig still uses config.suiPrivateKey because that's directly from config.ts
         this.primaryKeypair = this.loadKeypairFromConfig(config_1.default.suiPrivateKey);
         logger_1.logger.info(`Primary wallet loaded: ${this.primaryKeypair.toSuiAddress()}`);
+        // Store backendConfirmationUrl and javaStatusEndpoint if needed for processTransactionEffect
+        // We'll pass them down in startMonitoringTransactions
+        this.backendConfirmationUrl = config_1.default.backendConfirmationUrl; // Use config directly here
     }
     loadKeypairFromConfig(privateKeyString) {
         const cleanedPrivateKey = privateKeyString.startsWith("suiprivkey:")
@@ -75,10 +81,6 @@ class SuiService {
         return { address, privateKey };
     }
     async fundAddress(address) {
-        if (config_1.default.suiNetwork === "mainnet") {
-            logger_1.logger.warn("Faucet not available for Mainnet. Skipping funding.");
-            return;
-        }
         logger_1.logger.info(`Requesting SUI from faucet for ${address}...`);
         try {
             const response = (await (0, faucet_1.requestSuiFromFaucetV2)({
@@ -130,7 +132,7 @@ class SuiService {
             throw error;
         }
     }
-    async startMonitoringTransactions(javaBackendUrl, statusEndpoint) {
+    async startMonitoringTransactions(javaStatusEndpoint) {
         const addressToMonitor = this.primaryKeypair.toSuiAddress();
         logger_1.logger.info(`Starting transaction monitoring for address: ${addressToMonitor}`);
         // Stop any existing monitoring before starting new ones
@@ -143,7 +145,7 @@ class SuiService {
                     ToAddress: addressToMonitor,
                 },
                 onMessage: async (effects) => {
-                    await this.processTransactionEffect(effects, javaBackendUrl, statusEndpoint, addressToMonitor);
+                    await this.processTransactionEffect(effects, javaStatusEndpoint, addressToMonitor);
                 },
             });
             this.unsubscribeMonitoringFunctions.push(unsubscribeToAddress);
@@ -153,7 +155,7 @@ class SuiService {
                     FromAddress: addressToMonitor,
                 },
                 onMessage: async (effects) => {
-                    await this.processTransactionEffect(effects, javaBackendUrl, statusEndpoint, addressToMonitor);
+                    await this.processTransactionEffect(effects, javaStatusEndpoint, addressToMonitor);
                 },
             });
             this.unsubscribeMonitoringFunctions.push(unsubscribeFromAddress);
@@ -169,7 +171,7 @@ class SuiService {
      * Helper method to process a transaction effect, fetch full details,
      * extract relevant data, and send to the backend.
      */
-    async processTransactionEffect(effects, javaBackendUrl, statusEndpoint, monitoredAddress) {
+    async processTransactionEffect(effects, statusEndpoint, monitoredAddress) {
         logger_1.logger.debug(`Processing transaction effect for digest: ${effects.transactionDigest}`);
         let fullTransaction = null;
         try {
@@ -248,7 +250,7 @@ class SuiService {
         };
         logger_1.logger.info(`Transaction ${effects.transactionDigest} (Type: ${transactionDetails.type}, SUI Change: ${suiAmountChange / 1_000_000_000} SUI) status: ${status}. Reporting to backend.`);
         try {
-            const backendResponse = await axios_1.default.post(`${javaBackendUrl}${statusEndpoint}`, transactionDetails);
+            const backendResponse = await axios_1.default.post(`${this.backendConfirmationUrl}${statusEndpoint}`, transactionDetails);
             logger_1.logger.info(`Backend notified for ${effects.transactionDigest}. Response: ${backendResponse.status}`);
         }
         catch (backendError) {
@@ -317,4 +319,5 @@ class SuiService {
         return this.primaryKeypair;
     }
 }
-exports.suiService = new SuiService();
+exports.SuiService = SuiService;
+// export const suiService = new SuiService();

@@ -42,35 +42,39 @@ interface FaucetErrorResponse {
 
 type FaucetOperationResponse = FaucetSuccessResponse | FaucetErrorResponse;
 
-class SuiService {
+
+
+export class SuiService {
   private client: SuiClient;
   private primaryKeypair: Ed25519Keypair;
   private unsubscribeMonitoringFunctions: (() => Promise<boolean>)[] = [];
-
-  constructor() {
-    const shinamiNodeAccessKey = process.env.SHINAMI_NODE_ACCESS_KEY; // Assuming you load this from .env in config or directly
-    if (!shinamiNodeAccessKey) {
-      throw new Error(
-        "SHINAMI_NODE_ACCESS_KEY is not set. Please provide your Shinami API key."
-      );
-    }
-    this.client = createSuiClient(shinamiNodeAccessKey);
+  private backendConfirmationUrl: string;
+  constructor(shinamiNodeAccessKey: string, suiNetwork: "testnet") {
+    // We assume the shinamiNodeAccessKey is already validated by the caller (e.g., in index.ts)
+    // and passed in correctly.
+   // this.client = createSuiClient(shinamiNodeAccessKey);
+    this.client = new SuiClient({ url: getFullnodeUrl(suiNetwork) }); // Use the public endpoint for the specified network
+    logger.info(`SuiClient initialized with Public Node Service for network: ${suiNetwork}`);
+    this.backendConfirmationUrl = config.backendConfirmationUrl;
 
     logger.info(
-      `SuiClient initialized with Shinami Node Service for network: ${config.suiNetwork}`
+      `SuiClient initialized with Shinami Node Service for network: ${suiNetwork}`
     );
 
+    // loadKeypairFromConfig still uses config.suiPrivateKey because that's directly from config.ts
     this.primaryKeypair = this.loadKeypairFromConfig(config.suiPrivateKey);
     logger.info(`Primary wallet loaded: ${this.primaryKeypair.toSuiAddress()}`);
+
+    // Store backendConfirmationUrl and javaStatusEndpoint if needed for processTransactionEffect
+    // We'll pass them down in startMonitoringTransactions
+    this.backendConfirmationUrl = config.backendConfirmationUrl; // Use config directly here
   }
 
   private loadKeypairFromConfig(privateKeyString: string): Ed25519Keypair {
     const cleanedPrivateKey = privateKeyString.startsWith("suiprivkey:")
       ? privateKeyString.substring("suiprivkey:".length)
       : privateKeyString;
-
     let privateKeyBytes = fromBase64(cleanedPrivateKey);
-
     if (privateKeyBytes.length === 33 && privateKeyBytes[0] === 0x00) {
       privateKeyBytes = privateKeyBytes.slice(1);
       logger.debug("Removed key scheme byte (Ed25519) from private key.");
@@ -122,14 +126,12 @@ class SuiService {
     const privateKeyBytes = fullSecretKey.slice(0, 32);
     const privateKey = toHexString(privateKeyBytes);
 
+  
     return { address, privateKey };
+    
   }
 
   async fundAddress(address: string): Promise<void> {
-    if (config.suiNetwork === "mainnet") {
-      logger.warn("Faucet not available for Mainnet. Skipping funding.");
-      return;
-    }
 
     logger.info(`Requesting SUI from faucet for ${address}...`);
     try {
@@ -199,8 +201,7 @@ class SuiService {
   }
 
   async startMonitoringTransactions(
-    javaBackendUrl: string,
-    statusEndpoint: string
+    javaStatusEndpoint: string,
   ): Promise<void> {
     const addressToMonitor = this.primaryKeypair.toSuiAddress();
     logger.info(
@@ -212,6 +213,7 @@ class SuiService {
       await this.stopMonitoringTransactions(); // This call is now recognized
     }
 
+
     try {
       const unsubscribeToAddress = await this.client.subscribeTransaction({
         filter: {
@@ -220,8 +222,7 @@ class SuiService {
         onMessage: async (effects: TransactionEffects) => {
           await this.processTransactionEffect(
             effects,
-            javaBackendUrl,
-            statusEndpoint,
+            javaStatusEndpoint,
             addressToMonitor
           );
         },
@@ -238,8 +239,7 @@ class SuiService {
         onMessage: async (effects: TransactionEffects) => {
           await this.processTransactionEffect(
             effects,
-            javaBackendUrl,
-            statusEndpoint,
+            javaStatusEndpoint,
             addressToMonitor
           );
         },
@@ -264,7 +264,6 @@ class SuiService {
    */
   private async processTransactionEffect(
     effects: TransactionEffects,
-    javaBackendUrl: string,
     statusEndpoint: string,
     monitoredAddress: string
   ): Promise<void> {
@@ -374,7 +373,7 @@ class SuiService {
 
     try {
       const backendResponse = await axios.post(
-        `${javaBackendUrl}${statusEndpoint}`,
+        `${this.backendConfirmationUrl}${statusEndpoint}`,
         transactionDetails
       );
       logger.info(
@@ -466,4 +465,4 @@ class SuiService {
   }
 }
 
-export const suiService = new SuiService();
+// export const suiService = new SuiService();

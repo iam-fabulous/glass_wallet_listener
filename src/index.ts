@@ -1,73 +1,110 @@
 // src/index.ts
 
-import { suiService } from "./services/suiService"; // Import the suiService instance
-import config from "./config"; // Import your configuration
-import { logger } from "./utils/logger"; // Assuming you have a logger utility
+import { SuiService } from "./services/suiService";
+import config from "./config";
+import { logger } from "./utils/logger";
+import express from 'express';
+import bodyParser from 'body-parser';
+import apiRoutesFactory from './routes/apiRoutes';
 
-/**
- * Main function to start the Glass Wallet Listener application.
- */
+const app = express();
+const port = process.env.PORT || 3000;
+
+app.use(bodyParser.json());
+
+let suiServiceInstance: SuiService;
+
 async function startApplication() {
   logger.info("Glass Wallet Listener: Application startup initiated.");
 
-  // Validate essential configuration before starting
   if (!config.backendConfirmationUrl) {
     logger.error(
       "Configuration Error: BACKEND_CONFIRMATION_URL is missing. Please check .env and config/index.ts."
     );
-    process.exit(1); // Exit if critical config is missing
+    process.exit(1);
   }
   if (!config.suiPrivateKey) {
     logger.error(
       "Configuration Error: SUI_PRIVATE_KEY is missing. Please check .env and config/index.ts."
     );
-    process.exit(1); // Exit if critical config is missing
+    process.exit(1);
   }
-  // Add any other critical config checks here
+  if (!config.monitoredWalletAddress) {
+    logger.error(
+      "Configuration Error: MONITORED_WALLET_ADDRESS is missing. Please check .env and config/index.ts."
+    );
+    process.exit(1);
+  }
+  if (!config.shinamiNodeAccessKey) {
+      logger.error(
+          "Configuration Error: SHINAMI_NODE_ACCESS_KEY is missing. Please check .env and config/index.ts."
+      );
+      process.exit(1);
+  }
+
+  suiServiceInstance = new SuiService(
+      config.shinamiNodeAccessKey,
+      config.suiNetwork
+  );
+
+  app.use('/api', apiRoutesFactory(suiServiceInstance));
 
   try {
-    logger.info(
-      "Glass Wallet Listener: Attempting to start transaction monitoring..."
-    );
-    // Call the method to start monitoring transactions
-    await suiService.startMonitoringTransactions(
-      config.backendConfirmationUrl, // Or config.javaBackendUrl if that's the name in your config
-      config.javaStatusEndpoint // Make sure this matches the property name in your config
+    logger.info(`Glass Wallet Listener: Attempting to start API server on port ${port}...`);
+    const server = app.listen(port, () => {
+      logger.info(`Withdrawal API server listening on port ${port}`);
+    });
+
+    (suiServiceInstance as any).httpServer = server;
+
+    logger.info("Glass Wallet Listener: Attempting to start transaction monitoring...");
+    await suiServiceInstance.startMonitoringTransactions(
+      config.javaStatusEndpoint
     );
     logger.info(
       "Glass Wallet Listener: Transaction monitoring started successfully. The application is now active."
     );
 
-    // Keep the process alive indefinitely
-    // In some setups, just the async operation is enough, but a simple
-    // loop or waiting mechanism can explicitly keep Node.js process alive
-    // if it tries to exit prematurely. For a listener, the subscription
-    // itself should keep it alive.
   } catch (error) {
     logger.error("Glass Wallet Listener: Failed to start application:", error);
-    // You might want to implement retry logic here for production
-    process.exit(1); // Exit with an error code if startup fails
+    process.exit(1);
   }
 }
 
-// Call the main function to start the application
 startApplication();
 
-// You might also want to handle graceful shutdown signals (Ctrl+C)
 process.on("SIGINT", async () => {
-  logger.info(
-    "SIGINT received. Shutting down Glass Wallet Listener gracefully..."
-  );
-  await suiService.stopMonitoringTransactions(); // Call your stop function
-  logger.info("Glass Wallet Listener has shut down.");
-  process.exit(0);
+  logger.info("SIGINT received. Shutting down Glass Wallet Listener gracefully...");
+  if (suiServiceInstance) {
+    await suiServiceInstance.stopMonitoringTransactions();
+    if ((suiServiceInstance as any).httpServer) {
+      (suiServiceInstance as any).httpServer.close(() => {
+        logger.info('HTTP server closed.');
+        process.exit(0);
+      });
+    } else {
+      process.exit(0);
+    }
+  } else {
+    logger.warn("SuiService instance not initialized during SIGINT.");
+    process.exit(0);
+  }
 });
 
 process.on("SIGTERM", async () => {
-  logger.info(
-    "SIGTERM received. Shutting down Glass Wallet Listener gracefully..."
-  );
-  await suiService.stopMonitoringTransactions(); // Call your stop function
-  logger.info("Glass Wallet Listener has shut down.");
-  process.exit(0);
+  logger.info("SIGTERM received. Shutting down Glass Wallet Listener gracefully...");
+  if (suiServiceInstance) {
+    await suiServiceInstance.stopMonitoringTransactions();
+    if ((suiServiceInstance as any).httpServer) {
+      (suiServiceInstance as any).httpServer.close(() => {
+        logger.info('HTTP server closed.');
+        process.exit(0);
+      });
+    } else {
+      process.exit(0);
+    }
+  } else {
+    logger.warn("SuiService instance not initialized during SIGTERM.");
+    process.exit(0);
+  }
 });

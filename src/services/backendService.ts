@@ -8,7 +8,7 @@ class BackendService {
     payload: TransactionConfirmationPayload
   ): Promise<void> {
     logger.info(
-      `Sending transaction confirmation for degree ${payload.transactionDigest} to backend...`
+      `Sending transaction confirmation for degree ${payload.suiTransactionDigest} to backend...`
     );
     try {
       const response = await axios.post(
@@ -21,11 +21,11 @@ class BackendService {
         }
       );
       logger.info(
-        `Java Backend for ${payload.transactionDigest}: Status ${response.status}`
+        `Java Backend for ${payload.suiTransactionDigest}: Status ${response.status}`
       );
     } catch (error: any) {
       logger.error(
-        `Failed to send confirmation for ${payload.transactionDigest} to Java backend: `,
+        `Failed to send confirmation for ${payload.suiTransactionDigest} to Java backend: `,
         error.message
       );
       if (error.response) {

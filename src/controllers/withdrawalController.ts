@@ -11,11 +11,16 @@ import { WithdrawalRequest, WithdrawalResponse } from '../types/withdrawal';
  */
 export const withdrawFunds = (suiServiceInstance: SuiService) => { // This function receives the instance
   return async (req: Request, res: Response<WithdrawalResponse>, next: NextFunction) => { // This is the actual Express handler
-    const { recipientAddress, amount} = req.body as WithdrawalRequest;
+    const {recipientName, recipientAddress, amount} = req.body as WithdrawalRequest;
+
+    if (!/^\d+(\.\d+)?$/.test(amount)) {
+      return res.status(400).json({ success: false, recipientName, message: "Amount must be a positive number string." });
+    }
 
     if (!recipientAddress || typeof amount !== 'string') {
       //logger.warn(`Invalid withdrawal request: missing recipientAddress or invalid amount. Request ID: ${requestId || 'N/A'}`);
       return res.status(400).json({
+        recipientName,
         success: false,
         message: 'Invalid request: recipientAddress and a positive amount are required (amount in MIST).',
         
@@ -30,16 +35,18 @@ export const withdrawFunds = (suiServiceInstance: SuiService) => { // This funct
 
       //logger.info(`Withdrawal successful (ID: ${requestId || 'N/A'}). Transaction Digest: ${transactionDigest}`);
       res.status(200).json({
+        recipientName,
         success: true,
-        message: 'Withdrawal initiated successfully.',
+        message: ` ${amount}SUI Withdrawal initiated successfully.`,
         transactionDigest: transactionDigest,
        
       });
     } catch (error: any) {
       //logger.error(`Withdrawal failed (ID: ${requestId || 'N/A'}): ${error.message || error}`);
       res.status(500).json({
+        recipientName,
         success: false,
-        message: `Withdrawal failed: ${error.message || 'An unknown error occurred.'}`,
+        message: ` ${amount}SUI Withdrawal failed: ${error.message || 'An unknown error occurred.'}`,
         error: error.message || 'Unknown error',
         
       });

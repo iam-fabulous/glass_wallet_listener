@@ -157,18 +157,19 @@ export class SuiService {
     }
   }
 
-  async withdrawSui(recipientAddress: string, amount: number): Promise<string> {
+  async withdrawSui(recipientAddress: string, amount: string): Promise<string> {
+    const mistAmount = this.suiToMist(amount);
     logger.info(
-      `Attempting to withdraw ${amount} MIST SUI to ${recipientAddress} from ${this.primaryKeypair.toSuiAddress()}`
+      `Attempting to withdraw ${mistAmount} MIST SUI to ${recipientAddress} from ${this.primaryKeypair.toSuiAddress()}`
     );
 
-    if (amount <= 0) {
+    if (mistAmount <= 0) {
       throw new Error("Amount to withdraw must be positive.");
     }
 
     try {
       const txb = new Transaction();
-      const [coin] = txb.splitCoins(txb.gas, [amount]); // Split a new coin from the gas coin
+      const [coin] = txb.splitCoins(txb.gas, [mistAmount]); // Split a new coin from the gas coin
       txb.transferObjects([coin], recipientAddress); // Transfer the new coin to the recipient
 
       const result = await this.client.signAndExecuteTransaction({
@@ -199,6 +200,30 @@ export class SuiService {
       throw error;
     }
   }
+
+  private suiToMist(suiAmount: string): bigint {
+    const amountInDecimal = suiAmount.trim();
+
+    // New regular expression to allow for optional decimal part
+    if (!/^\d+(\.\d+)?$/.test(amountInDecimal)) {
+      throw new Error("Amount must be a decimal string or an integer string, e.g. '5' or '5.0'.");
+    }
+
+    // Check if the amount has a decimal point
+    if (!amountInDecimal.includes('.')) {
+      // If no decimal, append ".0" to handle it correctly
+      const amountToMist = BigInt(amountInDecimal + '000000000');
+      return amountToMist;
+    }
+
+    // Existing logic for decimal numbers
+    const [whole, fractional] = amountInDecimal.split(".");
+    const paddedFractional = fractional.padEnd(9, "0").substring(0, 9);
+    const combinedString = whole + paddedFractional;
+    const amountToMist = BigInt(combinedString);
+
+    return amountToMist;
+}
 
   async startMonitoringTransactions(
     javaStatusEndpoint: string,
@@ -256,6 +281,7 @@ export class SuiService {
       await this.stopMonitoringTransactions(); // This call is now recognized
       throw error;
     }
+    return new Promise<void>(() => {});
   }
 
   /**

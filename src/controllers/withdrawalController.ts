@@ -13,7 +13,7 @@ export const withdrawFunds = (suiServiceInstance: SuiService) => { // This funct
   return async (req: Request, res: Response<WithdrawalResponse>, next: NextFunction) => { // This is the actual Express handler
     const { recipientAddress, amount} = req.body as WithdrawalRequest;
 
-    if (!recipientAddress || typeof amount !== 'number' || amount <= 0) {
+    if (!recipientAddress || typeof amount !== 'string') {
       //logger.warn(`Invalid withdrawal request: missing recipientAddress or invalid amount. Request ID: ${requestId || 'N/A'}`);
       return res.status(400).json({
         success: false,
